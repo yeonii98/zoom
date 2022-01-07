@@ -9,9 +9,11 @@ html(lang="en")
     body 
         header
             h1 It Works
-        main 
-            ul
-            form
-                input(type="text", placeholder="write a msg", required)
-                button Send
+        main
+            div#welcome
+                form
+                    input(placeholder="room name", requires, type="text")
+                    button Enter Room 
+
+        script(src="/socket.io/socket.io.js")
         script(src="public/js/app.js")
