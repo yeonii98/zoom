@@ -1,6 +1,7 @@
 import http from "http";
-import SocketIO from "socket.io";
+import {Server} from "socket.io";
 import express from "express";
+import { instrument } from "@socket.io/admin-ui";
 
 const app = express();
 
@@ -15,7 +16,35 @@ const handleListen = () => console.log(`Listening on http://localhost:3000`);
 //같은 서버에서 http, webSocket 둘 다 작동시키기
 //두 개의 프로토콜이 같은 포트에서 작동한다.
 const httpServer = http.createServer(app);
-const wsServer = SocketIO(httpServer);
+const wsServer = new Server(httpServer, {
+    cors: {
+      origin: ["https://admin.socket.io"],
+      credentials: true
+    }
+  });
+  instrument(wsServer, {
+    auth: false
+  });
+  
+
+function publicRooms(){
+    const {
+        sockets: {
+            adapter: { sids, rooms },
+        },
+    } = wsServer;
+    const publicRooms = [];
+    rooms.forEach((_, key) => {//roomID를 socketID에서 찾을 수 없다면 public room을 찾은 것.
+        if(sids.get(key) === undefined){
+            publicRooms.push(key);
+        }
+    });
+    return publicRooms;
+}
+
+function countRoom(roomName){
+    return wsServer.sockets.adapter.rooms.get(roomName)?.size;
+}
 
 wsServer.on("connection", (socket) => {
     socket.onAny((event) => {
@@ -24,10 +53,14 @@ wsServer.on("connection", (socket) => {
     socket.on("enter_room", (roomName, done) => {
         socket.join(roomName);
         done();
-        socket.to(roomName).emit("welcome", socket.nickname);//방 안에 있는 모든 사람들에게 emit(내가 아닌 다른 사람들)
+        socket.to(roomName).emit("welcome", socket.nickname, countRoom(roomName));//방 안에 있는 모든 사람들에게 emit(내가 아닌 다른 사람들)
+        wsServer.sockets.emit("room_change", publicRooms());
     }); 
-    socket.on("disconnecting", () => {
-        socket.rooms.forEach((room) => socket.to(room).emit("bye", socket.nickname));
+    socket.on("disconnecting", () => {//방을 떠나기 직전
+        socket.rooms.forEach((room) => socket.to(room).emit("bye", socket.nickname, countRoom(room)-1));
+    });
+    socket.on("disconnect", () => {
+        wsServer.sockets.emit("room_change", publicRooms());
     });
     socket.on("new_message", (msg, room, done) => {
         socket.to(room).emit("new_message", `${socket.nickname}: ${msg}`);//방 안에 있는 모든 사람들에게 emit(내가 아닌 다른 사람들) 이게 작동하려면 프론트쪽에서 on으로 받아줘야함
